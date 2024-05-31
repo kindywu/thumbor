@@ -5,6 +5,6 @@
 - update cliff.toml https://github.com/kindywu/thumbor
 - pre-commit install
 
-  git remote add origin https://github.com/kindywu/thumbor.git
-  git branch -M main
-  git push -u origin main
+- git remote add origin https://github.com/kindywu/thumbor.git
+- git branch -M main
+- git push -u origin main
