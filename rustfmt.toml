@@ -1,0 +1,4 @@
+# rustfmt.toml
+
+# ignore = ["src/pb/abi.rs"]
+remove_nested_parens = false
