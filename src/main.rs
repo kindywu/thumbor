@@ -48,6 +48,7 @@ async fn main() -> Result<()> {
     tracing::debug!("listening on {}", addr);
 
     let listener = TcpListener::bind(addr).await.unwrap();
+    info!("thumbor serve on {}", addr);
     axum::serve(listener, app).await.unwrap();
     Ok(())
 }
