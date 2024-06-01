@@ -1,3 +1,5 @@
+mod engine;
+mod pb;
 use anyhow::Result;
 use axum::{
     extract::{Path, State},
@@ -6,7 +8,10 @@ use axum::{
     Router,
 };
 use bytes::Bytes;
+use engine::{Engine, Photon};
+use image::ImageFormat;
 use lru::LruCache;
+use pb::*;
 use percent_encoding::percent_decode_str;
 use serde::Deserialize;
 use std::{
@@ -17,11 +22,6 @@ use std::{
 };
 use tokio::{net::TcpListener, sync::Mutex};
 use tracing::{info, instrument};
-
-// 引入 protobuf 生成的代码，我们暂且不用太关心他们
-mod pb;
-
-use pb::*;
 
 // 参数使用 serde 做 Deserialize，axum 会自动识别并解析
 #[derive(Deserialize)]
@@ -34,7 +34,10 @@ struct Params {
 async fn main() -> Result<()> {
     // 初始化 tracing
     tracing_subscriber::fmt::init();
-    let cache: Cache = Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(1024).unwrap())));
+    let cache: Cache = Arc::new(Mutex::new(LruCache::new(
+        NonZeroUsize::new(10240)
+            .ok_or_else(|| anyhow::anyhow!("cache size must be non zero usize"))?,
+    )));
     // 构建路由
     let app = Router::new()
         .route("/image/:spec/:url", get(generate))
@@ -55,7 +58,7 @@ async fn generate(
     State(cache): State<Cache>,
 ) -> Result<(HeaderMap, Vec<u8>), StatusCode> {
     let url = percent_decode_str(&url).decode_utf8_lossy();
-    let _spec: ImageSpec = spec
+    let spec: ImageSpec = spec
         .as_str()
         .try_into()
         .map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -66,9 +69,19 @@ async fn generate(
         .await
         .map_err(|_| StatusCode::BAD_REQUEST)?;
 
+    // 使用 image engine 处理
+    let mut engine: Photon = data
+        .try_into()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    engine.apply(&spec.specs);
+
+    let image = engine.generate(ImageFormat::Png);
+
+    info!("Finished processing: image size {}", image.len());
+
     let mut headers = HeaderMap::new();
-    headers.insert("content-type", HeaderValue::from_static("image/jpeg"));
-    Ok((headers, data.to_vec()))
+    headers.insert("content-type", HeaderValue::from_static("image/png"));
+    Ok((headers, image))
 }
 
 type Cache = Arc<Mutex<LruCache<u64, Bytes>>>;
@@ -92,7 +105,7 @@ async fn retrieve_image(url: &str, cache: Cache) -> Result<Bytes> {
             info!("Fetch url {}", url);
             let resp = reqwest::get(url).await?;
             let data = resp.bytes().await?;
-            info!("Put cache {}", key);
+            info!("Put to cache {}", key);
             g.put(key, data.clone());
             data
         }
